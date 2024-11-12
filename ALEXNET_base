@@ -81,3 +81,67 @@ for directory in os.listdir(BASE_URL):
                 image = mpimg.imread(BASE_URL + directory + '/' + file)
                 plt.imshow(image)
                 plt.title(activity_map[directory])
+
+# 4. 이미지제너레이터를 이용한 데이터셋 전처리
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+
+BASE_URL = '../input/state-farm-distracted-driver-detection/imgs/train/'
+
+train_datagen = ImageDataGenerator(
+    rescale=1./255, #픽셀값을 0-1 범위로
+    validation_split=0.2 #20%를 검증 데이터로
+)
+
+#학습데이터 생성
+train_generator = train_datagen.flow_from_directory(
+    directory=BASE_URL,
+    target_size=(227,227), #alexnet 입력크기
+    batch_size = 32,
+    class_mode='categorical',
+    subset='training'
+)
+
+#검증데이터 생성
+validation_generator = train_datagen.flow_from_directory(
+    directory=BASE_URL,
+    target_size=(227,227), 
+    batch_size = 32,
+    class_mode='categorical',
+    subset='validation'
+)
+
+#5. AlexNet
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+
+model = Sequential([
+  Conv2D(96,(11,11), strides=4, activation='relu', input_shape=(227,227,3)), 
+  MaxPooling2D(pool_size=(3,3), strides=2),
+
+  Conv2D(256,(5,5), strides=1, activation='relu'), 
+  MaxPooling2D(pool_size=(3,3), strides=2),
+
+  Conv2D(384,(3,3), padding='same', activation='relu'), 
+  Conv2D(384,(3,3), padding='same', activation='relu'), 
+  Conv2D(256,(3,3), padding='same', activation='relu'), 
+
+  Flatten(),
+    
+  Dense(1024, activation='relu'),
+  Dropout(0.5),
+
+  Dense(NUMBER_CLASSES, activation='softmax')
+]
+)
+
+model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+model.summary()
+
+history = model.fit(
+    train_generator,
+    epochs=10,
+    validation_data=validation_generator,
+    steps_per_epoch=train_generator.samples // 32,
+    validation_steps=validation_generator.samples // 32
+)
