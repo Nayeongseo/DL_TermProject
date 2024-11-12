@@ -1,3 +1,5 @@
+# 1. loading data
+
 import os
 from glob import glob
 import random
@@ -38,9 +40,44 @@ from keras.applications.vgg16 import VGG16
 dataset = pd.read_csv('/kaggle/input/state-farm-distracted-driver-detection/driver_imgs_list.csv')
 dataset.head(5)
 
-# Groupby subjects
+
+
+
+# 2. 수치 Groupby subjects
 by_drivers = dataset.groupby('subject') 
 # Groupby unique drivers
 unique_drivers = by_drivers.groups.keys() # drivers id
 print('There are : ',len(unique_drivers), ' unique drivers')
 print('There is a mean of ',round(dataset.groupby('subject').count()['classname'].mean()), ' images by driver.')
+
+
+
+# 3. 각각의 클래스 이미지 예시 출력
+
+NUMBER_CLASSES = 10 # 10 classeslinkcode
+activity_map = {'c0': 'Safe driving', 
+                'c1': 'Texting - right', 
+                'c2': 'Talking on the phone - right', 
+                'c3': 'Texting - left', 
+                'c4': 'Talking on the phone - left', 
+                'c5': 'Operating the radio', 
+                'c6': 'Drinking', 
+                'c7': 'Reaching behind', 
+                'c8': 'Hair and makeup', 
+                'c9': 'Talking to passenger'}
+
+
+plt.figure(figsize = (12, 20))
+image_count = 1
+BASE_URL = '../input/state-farm-distracted-driver-detection/imgs/train/'
+for directory in os.listdir(BASE_URL):
+    if directory[0] != '.':
+        for i, file in enumerate(os.listdir(BASE_URL + directory)):
+            if i == 1:
+                break
+            else:
+                fig = plt.subplot(5, 2, image_count)
+                image_count += 1
+                image = mpimg.imread(BASE_URL + directory + '/' + file)
+                plt.imshow(image)
+                plt.title(activity_map[directory])
