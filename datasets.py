@@ -46,22 +46,29 @@ class OnTheFlyDataset(Dataset):
 def load_datasets(train_path, test_path, batch_size=128, include_filenames=False):
     """Create DataLoaders for training, validation, and testing with ResNet-style augmentations."""
     # Training dataset transform with ResNet-style augmentations
+    # Updated train_transform with vehicle-specific augmentations
     train_transform = transforms.Compose([
-        transforms.RandomResizedCrop(224),  # Random crop and resize to 224x224
-        transforms.RandomHorizontalFlip(p=0.5),  # Random horizontal flip
-        transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1),  # Random color jitter
-        transforms.RandomRotation(degrees=15),  # Random rotation within 15 degrees
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # Normalize for ResNet
+        transforms.RandomResizedCrop(224),         # Random crop to focus on different regions
+        transforms.RandomHorizontalFlip(p=0.5),    # Flip to simulate mirror-image scenarios
+        transforms.ColorJitter(                    # Brightness, contrast, saturation, hue
+            brightness=0.3, contrast=0.3, saturation=0.3, hue=0.05
+        ),
+        transforms.RandomRotation(degrees=15),     # Simulate small camera rotations
+        transforms.RandomPerspective(distortion_scale=0.4, p=0.5),  # Perspective distortion
+        transforms.GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 1.5)), # Simulate motion blur
+        transforms.RandomErasing(p=0.3, scale=(0.02, 0.1), ratio=(0.3, 3.3)), # Random erase parts of image
+        transforms.ToTensor(),                     # Convert to tensor
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]), # Normalize for ResNet
     ])
 
-    # Validation and test dataset transform
+    # Evaluation transform for consistency
     eval_transform = transforms.Compose([
-        transforms.Resize(256),  # Resize shorter side to 256
-        transforms.CenterCrop(224),  # Center crop to 224x224
+        transforms.Resize((256, 256)),             # Resize to standard input size
+        transforms.CenterCrop(224),                # Center crop
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]), # Normalize
     ])
+
 
     # Training dataset
     train_dataset = OnTheFlyDataset(root_dir=train_path, labels=True, transform=train_transform)
@@ -71,8 +78,8 @@ def load_datasets(train_path, test_path, batch_size=128, include_filenames=False
     val_dataset.dataset.transform = eval_transform  # Apply evaluation transform to validation set
 
     # DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True)
 
     # Test dataset
     if include_filenames:
@@ -80,6 +87,6 @@ def load_datasets(train_path, test_path, batch_size=128, include_filenames=False
     else:
         test_dataset = OnTheFlyDataset(root_dir=test_path, labels=None, transform=eval_transform)
 
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True)
 
     return train_loader, val_loader, test_loader

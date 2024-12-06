@@ -10,8 +10,17 @@ from model import ResNet as Model
 from datasets import load_datasets
 import pandas as pd
 import numpy as np
+import random
+from torchsummary import summary
 
-
+def set_random_seed(seed=0):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True  # Reproducibility for CUDA
+    torch.backends.cudnn.benchmark = False
+    
 class EarlyStopping:
     def __init__(self, patience=3, delta=0.01):
         self.patience = patience
@@ -28,12 +37,30 @@ class EarlyStopping:
             self.counter += 1
             if self.counter >= self.patience:
                 self.stop = True
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1, gamma=2, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        ce_loss = nn.CrossEntropyLoss(reduction='none')(inputs, targets)
+        pt = torch.exp(-ce_loss)  # Probability of correct class
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="ResNet Training and Testing")
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size for training')
-    parser.add_argument('--epochs', type=int, default=5, help='Number of training epochs')
+    parser.add_argument('--epochs', type=int, default=10, help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate for optimizer')
     parser.add_argument('--train_path', type=str, default='C:/Users/ASUS/Desktop/driver/imgs/train', help='Path to train images directory')
     parser.add_argument('--test_path', type=str, default='C:/Users/ASUS/Desktop/driver/imgs/test', help='Path to test images directory')
@@ -113,7 +140,6 @@ def predict_and_save_results(model, test_loader, device, submission_file):
     submission_df.to_csv(submission_file, index=False)
     print(f"Submission file saved to {submission_file}")
 
-
 def main():
     args = parse_args()
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
@@ -129,10 +155,10 @@ def main():
 
     # Define model
     model = Model(num_classes=10).to(device)
-
+    summary(model, input_size=(3, 224, 224))  # Assuming input size is (3, 224, 224)
     # Loss and optimizer
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    criterion = FocalLoss(alpha=1, gamma=2, reduction='mean')
+    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-1)
 
     # Initialize Mixed Precision
     scaler = torch.cuda.amp.GradScaler()
@@ -142,7 +168,7 @@ def main():
 
     best_val_accuracy = 0
 
-    for epoch in range(args.epochs):
+    for epoch in range(args.epochs):    
         print(f"Epoch {epoch + 1}/{args.epochs}")
 
         # Training loop
@@ -178,4 +204,6 @@ def main():
 
 
 if __name__ == '__main__':
+    
+    set_random_seed(0)  # 랜덤 시드 고정
     main()
