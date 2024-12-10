@@ -1,127 +1,111 @@
 import os
-from torch.utils.data import DataLoader, Dataset, random_split
 from PIL import Image
+import torch
+from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision import transforms
 
-#사용자 정의 데이터셋 클래스
-class CustomDataset(Dataset):
-    def __init__(self, path, train=True, transform=None):
+class OnTheFlyDataset(Dataset):
+    """Dataset class to load and preprocess images on the fly."""
+    def __init__(self, root_dir, labels=None, transform=None, return_filenames=False):
         """
-        사용자 정의 데이터셋 클래스
-        운전자의 이미지를 로드하고 데이터 증강 적용
-        Args:
-            path (str): 데이터셋 경로
-            train (bool): True면 학습 데이터, False면 테스트 데이터
-            transform (callable, optional): 이미지에 적용할 변환 함수
-        """
-        self.image_paths = [] #이미지 파일 경로 리스트
-        self.labels = [] #이미지 라벨 리스트
-        self.transform = transform #데이터 증강 함수
+        Initialize the dataset.
 
-        if train:
-            #학습 데이터 로드
-            for class_index in range(10): #클래스: c0~c9
-                class_path = os.path.join(path, f'c{class_index}')
-                if not os.path.exists(class_path):
-                    raise FileNotFoundError(f"Class folder '{class_path}' not found.")
-                
-                files = os.listdir(class_path) #클래스 디렉토리 내 파일리스트
-                for filename in files:
-                    self.image_paths.append(os.path.join(class_path, filename)) #이미지 경로 추가
-                    self.labels.append(class_index) #라벨 추가
-        else:
-            #테스트 데이터 로드
-            self.image_paths = os.listdir(path)
-            self.labels = None #테스트 데이터는 라벨이 없음
-        self.train = train #학습 데이터 여부 플래그
-        self.path = path #데이터 경로
+        Args:
+            root_dir (str): Root directory containing the dataset.
+            labels (bool or None): If true, the dataset has labeled subdirectories(ex. c0, c1, ...). If None, it's a test set.
+            transform (callable): Transformation to apply to the images.
+            return_filenames (bool): If true, return filenames with images.
+        """
+        self.root_dir = root_dir.replace("\\", "/") #For trainig/validation
+        self.labels = labels #Assuming classes are named vc0, c1, ..., c9
+        self.transform = transform
+        self.return_filenames = return_filenames
+        self.image_paths = []
+
+        if labels is not None:  # For training/validation
+            for class_index in range(10):  # Assuming classes are named c0, c1, ..., c9
+                class_dir = f"{self.root_dir}/c{class_index}"
+                if os.path.exists(class_dir):
+                    self.image_paths.extend([(f"{class_dir}/{img}", class_index)
+                                             for img in os.listdir(class_dir)])
+                else: 
+                    raise FileNotFoundError(f"Class directory not found: {class_dir}")
+        else:  # For testing
+            if os.path.exists(self.root_dir):
+                self.image_paths = [(f"{self.root_dir}/{img}", None) for img in os.listdir(self.root_dir)]
+            else:
+                raise FileNotFoundError(f"Test directory not found: {self.root_dir}")
 
     def __len__(self):
-        """
-        데이터셋의 크기를 반환
-        """
+        """Return the total number of samples in the dataset."""
         return len(self.image_paths)
 
     def __getitem__(self, idx):
         """
-        데이터셋에서 특정 인덱스에 해당하는 데이터 반환
-
+        Retrieve a single sample from the dataset.
+        
         Args:
-            idx (int): 데이터 인덱스
-
+            idx(int): Index of the sample to retrieve.
         Returns:
-            tuple: 이미지, 라벨
+            tuple: (image, label) for training/validation
+                   or (image, filename) for testing if 'return_filenames=True'
         """
-        if self.train:
-            image_path = self.image_paths[idx] #학습 이미지 경로
-            label = self.labels[idx] #학습 이미지 라벨
-        else:
-            image_path = os.path.join(self.path, self.image_paths[idx]) #테스트 이미지 경로
-            label = self.image_paths[idx] #테스트 파일명 
-
-        img = Image.open(image_path).convert('RGB') #이미지를 RGB로 로드
-
-        # 데이터 증강 적용
+        img_path, label = self.image_paths[idx]
+        img_path = img_path.replace("\\", "/")
+        image = Image.open(img_path).convert('RGB')
         if self.transform:
-            img = self.transform(img)
+            image = self.transform(image)
+        if self.return_filenames:
+            filename = os.path.basename(img_path)
+            return (image, filename) if label is None else (image, label, filename)
+        if label is not None:
+            return image, torch.tensor(label, dtype=torch.long)
+        return image
 
-        if self.train:
-            return img, label #학습 데이터
-        else:
-            return img, label #테스트데이터
-
-#데이터 로드 및 DataLoader 생성 함수
-def load_datasets(train_path, test_path, batch_size=128):
-    """
-    학습, 검증, 테스트 데이터셋을 로드하고 DataLoader를 생성
-    
-    Args:
-        train_path (str): 학습 데이터셋 경로
-        test_path (str): 테스트 데이터셋 경로
-        batch_size (int): DataLoader 배치 크기
-
-    Returns:
-        tuple: train_loader, val_loader, test_loader
-    """
-    #학습 데이터에 적용할 데이터 증강 변환 정의
+def load_datasets(train_path, test_path, batch_size=128, include_filenames=False):
+    """Create DataLoaders for training, validation, and testing with ResNet-style augmentations."""
+    # Training dataset transform with ResNet-style augmentations
+    # Updated train_transform with vehicle-specific augmentations
     train_transform = transforms.Compose([
-        transforms.Resize((227, 227)), #이미지 크기 조정
-        transforms.RandomHorizontalFlip(p=0.5), #랜덤 수평 뒤집기
-        transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.05), #밝기, 대비, 채도 조정
-        transforms.RandomRotation(degrees=15), #랜덤 회전
-        transforms.RandomPerspective(distortion_scale=0.4, p=0.5), #랜덤 투시 변환
-        transforms.ToTensor(), #텐서 변환
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) #이미지 정규화
-    ])
-    
-    #검증 및 테스트 데이터에 적용할 변환 정의
-    val_transform = transforms.Compose([
-        transforms.Resize((227, 227)), #이미지 크기 조정
-        transforms.ToTensor(), #텐서로 변환
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) #이미지 정규화
+        transforms.RandomResizedCrop(224),         # Random crop to focus on different regions
+        transforms.RandomHorizontalFlip(p=0.5),    # Flip to simulate mirror-image scenarios
+        transforms.ColorJitter(                    # Brightness, contrast, saturation, hue
+            brightness=0.3, contrast=0.3, saturation=0.3, hue=0.05
+        ),
+        transforms.RandomRotation(degrees=15),     # Simulate small camera rotations
+        transforms.RandomPerspective(distortion_scale=0.4, p=0.5),  # Perspective distortion
+        transforms.GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 1.5)), # Simulate motion blur
+        transforms.RandomErasing(p=0.3, scale=(0.02, 0.1), ratio=(0.3, 3.3)), # Random erase parts of image
+        transforms.ToTensor(),                     # Convert to tensor
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]), 
     ])
 
-    test_transform = val_transform #테스트 데이터 변환은 검증 데이터 변환과 동일
+    # Evaluation transform for consistency
+    eval_transform = transforms.Compose([
+        transforms.Resize((256, 256)),             # Resize to standard input size
+        transforms.CenterCrop(224),                # Center crop
+        transforms.ToTensor(),                     # Convert to tensor
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]), # Normalize
+    ])
 
-    #학습 데이터셋 생성
-    train_dataset = CustomDataset(train_path, train=True, transform=train_transform)
 
-    #학습 데이터 셋을 학습/검증으로 분할
-    train_size = int(0.8 * len(train_dataset)) #학습데이터 크기: 전체의 80%
-    val_size = len(train_dataset) - train_size
+    # Training dataset
+    train_dataset = OnTheFlyDataset(root_dir=train_path, labels=True, transform=train_transform)
+    train_size = int(0.8 * len(train_dataset))     #80% for training
+    val_size = len(train_dataset) - train_size     #20% for validation
     train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
+    val_dataset.dataset.transform = eval_transform  # Apply evaluation transform to validation set
 
-    #검증 데이터에 변환 적용
-    val_dataset.dataset.transform = val_transform
+    # DataLoaders
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True)
 
-    #DataLoader 생성
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    # Test dataset
+    if include_filenames:
+        test_dataset = OnTheFlyDataset(root_dir=test_path, labels=None, transform=eval_transform, return_filenames=True)
+    else:
+        test_dataset = OnTheFlyDataset(root_dir=test_path, labels=None, transform=eval_transform)
 
-    #테스트 데이터셋 및 DataLoader 생성
-    test_dataset = CustomDataset(test_path, train=False, transform=test_transform)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True)
 
-    #데이터셋 크기 출력
-    print(f"Loaded {len(train_dataset)} training samples, {len(val_dataset)} validation samples, and {len(test_dataset)} test samples.")
     return train_loader, val_loader, test_loader
