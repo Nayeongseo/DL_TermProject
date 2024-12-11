@@ -3,11 +3,11 @@
 ## Project Duration
 2024.11.06 - 2024.12.11
 
-## CNN Architectures Used
-- AlexNet
-- VGGNet
-- ResNet
-- GoogLeNet
+## CNN Architectures Used & Results
+- AlexNet: 0.56037
+- VGGNet: 0.25493
+- ResNet: 0.22333
+- GoogLeNet: 0.38335
 
 ## Kaggle Competition
 [State Farm Distracted Driver Detection](https://www.kaggle.com/competitions/state-farm-distracted-driver-detection/data)
